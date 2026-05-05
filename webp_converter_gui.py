@@ -10,6 +10,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image, ImageSequence
 import imageio_ffmpeg
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -904,33 +905,35 @@ class WebPConverterApp(ctk.CTk):
                         self.after(0, self._update_file_status, f, "done")
 
                 else:
-                    for idx, webp_file in enumerate(files, 1):
-                        if self._cancel_requested:
-                            self._finish_cancelled()
-                            return
-
-                        self.after(0, self._update_file_status,
-                                   webp_file, "converting")
-                        self._ui(self.progress_text.configure,
-                                 text=f"Extracting {idx} / {len(files)}")
-                        frames = self._extract_frames(webp_file, temp_dir,
-                                                      settings)
-                        current_step += 1
-                        self._ui_progress(current_step / total_steps)
-
-                        if frames:
+                    with ProcessPoolExecutor() as executor:
+                        futures = [
+                            executor.submit(process_single_file, (f, settings, str(temp_dir)))
+                            for f in files
+                        ]
+                    
+                        for i, future in enumerate(as_completed(futures), 1):
+                            if self._cancel_requested:
+                                break
+                    
+                            webp_file, frames, error = future.result()
+                    
+                            if error:
+                                self.after(0, self._update_file_status, webp_file, "error")
+                                continue
+                    
+                            self.after(0, self._update_file_status, webp_file, "converting")
+                    
                             out = os.path.join(
                                 output_folder,
                                 f"{Path(webp_file).stem}_{uuid.uuid4().hex[:6]}{format_choice}",
                             )
-                            self._ui(self.progress_text.configure,
-                                     text=f"Encoding {idx} / {len(files)}")
-                            self._convert_to_video(frames, fps, out,
-                                                   format_choice, settings["crf"])
-                        current_step += 1
-                        self._ui_progress(current_step / total_steps)
-                        self.after(0, self._update_file_status,
-                                   webp_file, "done")
+                    
+                            self._convert_to_video(frames, fps, out, format_choice, settings["crf"])
+                    
+                            self.after(0, self._update_file_status, webp_file, "done")
+                    
+                            current_step += 2
+                            self._ui_progress(current_step / total_steps)
 
                 self._ui(self.progress_text.configure,
                          text="Done — files saved to output folder")
@@ -1102,7 +1105,33 @@ class WebPConverterApp(ctk.CTk):
         toast.geometry(f"310x46+{x}+{y}")
         self.after(duration, toast.destroy)
 
+    
+    def process_single_file(args):
+    webp_file, settings, temp_dir = args
+
+    from pathlib import Path
+    import uuid
+
+    app = None  # no GUI here
+
+    try:
+        temp_dir = Path(temp_dir)
+
+        frames = []
+        with Image.open(webp_file) as im:
+            for i, frame in enumerate(ImageSequence.Iterator(im)):
+                path = temp_dir / f"{uuid.uuid4().hex}_{i}.png"
+                frame.convert("RGBA").save(path)
+                frames.append(str(path))
+
+        return (webp_file, frames, None)
+
+    except Exception as e:
+        return (webp_file, None, str(e))
+
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     app = WebPConverterApp()
     app.mainloop()
