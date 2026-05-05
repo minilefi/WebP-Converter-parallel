@@ -126,6 +126,30 @@ def section_card(parent, title: str = "", **kwargs) -> ctk.CTkFrame:
     return card
 
 
+def process_single_file(args):
+    webp_file, settings, temp_dir = args
+    
+    from pathlib import Path
+    import uuid
+    
+    app = None  # no GUI here
+    
+    try:
+        temp_dir = Path(temp_dir)
+    
+        frames = []
+        with Image.open(webp_file) as im:
+            for i, frame in enumerate(ImageSequence.Iterator(im)):
+                path = temp_dir / f"{uuid.uuid4().hex}_{i}.png"
+                frame.convert("RGBA").save(path)
+                frames.append(str(path))
+    
+        return (webp_file, frames, None)
+    
+    except Exception as e:
+        return (webp_file, None, str(e))
+
+
 # ─────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────
@@ -1104,30 +1128,6 @@ class WebPConverterApp(ctk.CTk):
         y = max(0, min(y, screen_h - 60))
         toast.geometry(f"310x46+{x}+{y}")
         self.after(duration, toast.destroy)
-
-    
-    def process_single_file(args):
-        webp_file, settings, temp_dir = args
-    
-        from pathlib import Path
-        import uuid
-    
-        app = None  # no GUI here
-    
-        try:
-            temp_dir = Path(temp_dir)
-    
-            frames = []
-            with Image.open(webp_file) as im:
-                for i, frame in enumerate(ImageSequence.Iterator(im)):
-                    path = temp_dir / f"{uuid.uuid4().hex}_{i}.png"
-                    frame.convert("RGBA").save(path)
-                    frames.append(str(path))
-    
-            return (webp_file, frames, None)
-    
-        except Exception as e:
-            return (webp_file, None, str(e))
 
 
 if __name__ == "__main__":
